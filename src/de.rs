@@ -1,5 +1,5 @@
 use crate::read::{self, Read};
-use crate::{Error, Result};
+use crate::{Error, ErrorKind, Result};
 
 pub struct Deserializer<R> {
     read: R,
@@ -24,7 +24,9 @@ impl<'de, R: Read<'de>> Deserializer<R> {
 
     fn end(&mut self) -> Result<()> {
         match self.peek()? {
-            Some(_) => Err(Error {}),
+            Some(_) => Err(Error {
+                kind: ErrorKind::Syntax,
+            }),
             None => Ok(()),
         }
     }
@@ -37,11 +39,12 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
     where
         V: serde::de::Visitor<'de>,
     {
-        let peek = self.peek()?.ok_or(Error {})?;
-        match peek {
-            b'!' => {
+        match self.peek()? {
+            Some(b'!') => {
                 self.eat_char();
-                let peek = self.peek()?.ok_or(Error {})?;
+                let peek = self.peek()?.ok_or(Error {
+                    kind: ErrorKind::Eof,
+                })?;
                 match peek {
                     b'n' => {
                         self.eat_char();
@@ -59,189 +62,68 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                         self.eat_char();
 
                         let ret = visitor.visit_seq(SeqAccess::new(self));
-                        let end_seq = if let Some(b')') = self.peek()? {
+
+                        if let b')' = self.peek()?.ok_or(Error {
+                            kind: ErrorKind::Eof,
+                        })? {
                             self.eat_char();
-                            Ok(())
                         } else {
-                            Err(Error {})
+                            return Err(Error {
+                                kind: ErrorKind::Syntax,
+                            });
                         };
 
-                        match (ret, end_seq) {
-                            (Ok(ret), Ok(())) => Ok(ret),
-                            _ => Err(Error {}),
-                        }
+                        ret
                     }
-                    _ => Err(Error {}),
+                    _ => Err(Error {
+                        kind: ErrorKind::Syntax,
+                    }),
                 }
             }
-            b'-' | b'0'..=b'9' => todo!(),
-            b'\'' => {
+            Some(b'-' | b'0'..=b'9') => {
+                let mut f = String::new();
+                while let Some(ch @ (b'-' | b'0'..=b'9' | b'.')) = self.peek()? {
+                    f.push(ch as char);
+                    self.eat_char();
+                }
+
+                let v = f.parse().map_err(|e| Error {
+                    kind: ErrorKind::Syntax,
+                })?;
+
+                visitor.visit_f64(v)
+            }
+            Some(b'\'') => {
                 self.eat_char();
                 let s = self.read.parse_str()?;
 
                 visitor.visit_string(s)
             }
-            b'(' => {
+            Some(b'(') => {
                 self.eat_char();
 
                 let ret = visitor.visit_map(MapAccess::new(self));
 
-                let end_map = if let Some(b')') = self.peek()? {
+                if let b')' = self.peek()?.ok_or(Error {
+                    kind: ErrorKind::Eof,
+                })? {
                     self.eat_char();
-                    Ok(())
                 } else {
-                    Err(Error {})
+                    return Err(Error {
+                        kind: ErrorKind::Syntax,
+                    });
                 };
 
-                match (ret, end_map) {
-                    (Ok(ret), Ok(())) => Ok(ret),
-                    _ => Err(Error {}),
-                }
+                ret
             }
-            _ => {
+            Some(_) => {
                 let value = self.read.parse_ident()?;
-
                 visitor.visit_string(value)
             }
+            None => Err(Error {
+                kind: ErrorKind::Eof,
+            }),
         }
-    }
-
-    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        let peek = self.peek()?.ok_or(Error {})?;
-
-        let value = if peek == b'!' {
-            self.eat_char();
-            let next = self.next_char()?.ok_or(Error {})?;
-            match next {
-                b't' => true,
-                b'f' => false,
-                _ => return Err(Error {}),
-            }
-        } else {
-            return Err(Error {});
-        };
-
-        visitor.visit_bool(value)
-    }
-
-    fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_char<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        self.deserialize_str(visitor)
-    }
-
-    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        let peek = self.peek()?.ok_or(Error {})?;
-
-        let value = match peek {
-            b'!' => return Err(Error {}),
-            b'\'' => {
-                self.eat_char();
-                self.read.parse_str()?
-            }
-            b'-' | b'0'..=b'9' => todo!(),
-            _ => self.read.parse_ident()?,
-        };
-
-        visitor.visit_string(value)
-    }
-
-    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        self.deserialize_str(visitor)
-    }
-
-    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
     }
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
@@ -252,7 +134,9 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
             Some(b'!') => {
                 self.eat_char();
                 if self.next_char()? != Some(b'n') {
-                    return Err(Error {});
+                    return Err(Error {
+                        kind: ErrorKind::Semantic,
+                    });
                 }
                 visitor.visit_none()
             }
@@ -260,187 +144,10 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
         }
     }
 
-    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        let peek = self.peek()?.ok_or(Error {})?;
-        match peek {
-            b'!' => {
-                self.eat_char();
-                let peek = self.peek()?.ok_or(Error {})?;
-                match peek {
-                    b'n' => {
-                        self.eat_char();
-                        visitor.visit_unit()
-                    }
-                    _ => Err(Error {}),
-                }
-            }
-            _ => Err(Error {}),
-        }
-    }
-
-    fn deserialize_unit_struct<V>(self, name: &'static str, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        self.deserialize_unit(visitor)
-    }
-
-    fn deserialize_newtype_struct<V>(self, name: &'static str, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        let peek = self.peek()?.ok_or(Error {})?;
-
-        let value = match peek {
-            b'!' => {
-                self.eat_char();
-
-                let peek = self.peek()?.ok_or(Error {})?;
-                if peek != b'(' {
-                    return Err(Error {});
-                }
-
-                self.eat_char();
-
-                let ret = visitor.visit_seq(SeqAccess::new(self));
-
-                let end_seq = if let Some(b')') = self.peek()? {
-                    self.eat_char();
-                    Ok(())
-                } else {
-                    Err(Error {})
-                };
-
-                match (ret, end_seq) {
-                    (Ok(ret), Ok(())) => Ok(ret),
-                    _ => Err(Error {}),
-                }
-            }
-            _ => return Err(Error {}),
-        };
-
-        value
-    }
-
-    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        self.deserialize_seq(visitor)
-    }
-
-    fn deserialize_tuple_struct<V>(
-        self,
-        name: &'static str,
-        len: usize,
-        visitor: V,
-    ) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        self.deserialize_seq(visitor)
-    }
-
-    fn deserialize_map<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        let peek = self.peek()?.ok_or(Error {})?;
-
-        let value = match peek {
-            b'(' => {
-                self.eat_char();
-
-                let ret = visitor.visit_map(MapAccess::new(self));
-
-                let end_map = if let Some(b')') = self.peek()? {
-                    self.eat_char();
-                    Ok(())
-                } else {
-                    Err(Error {})
-                };
-
-                match (ret, end_map) {
-                    (Ok(ret), Ok(())) => Ok(ret),
-                    _ => Err(Error {}),
-                }
-            }
-            _ => return Err(Error {}),
-        };
-
-        value
-    }
-
-    fn deserialize_struct<V>(
-        self,
-        name: &'static str,
-        fields: &'static [&'static str],
-        visitor: V,
-    ) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        let peek = self.peek()?.ok_or(Error {})?;
-
-        let value = match peek {
-            b'(' => {
-                self.eat_char();
-
-                let ret = visitor.visit_map(MapAccess::new(self));
-
-                let end_map = if let Some(b')') = self.peek()? {
-                    self.eat_char();
-                    Ok(())
-                } else {
-                    Err(Error {})
-                };
-
-                match (ret, end_map) {
-                    (Ok(ret), Ok(())) => Ok(ret),
-                    _ => Err(Error {}),
-                }
-            }
-            b'!' => todo!(),
-            _ => return Err(Error {}),
-        };
-
-        value
-    }
-
-    fn deserialize_enum<V>(
-        self,
-        name: &'static str,
-        variants: &'static [&'static str],
-        visitor: V,
-    ) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
-    }
-
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        self.deserialize_str(visitor)
-    }
-
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        todo!()
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+        bytes byte_buf unit unit_struct newtype_struct seq tuple
+        tuple_struct map struct enum identifier ignored_any
     }
 }
 
@@ -462,19 +169,24 @@ impl<'de, 'a, R: Read<'de> + 'a> serde::de::MapAccess<'de> for MapAccess<'a, R> 
     where
         K: serde::de::DeserializeSeed<'de>,
     {
-        let peek = match self.de.peek()?.ok_or(Error {})? {
-            b')' => return Ok(None),
-            b',' if !self.first => {
+        match self.de.peek()? {
+            Some(b')') => return Ok(None),
+            Some(b',') if !self.first => {
                 self.de.eat_char();
-                self.de.peek()?.ok_or(Error {})?
             }
-            b => {
+            Some(_) => {
                 if self.first {
                     self.first = false;
-                    b
                 } else {
-                    return Err(Error {});
+                    return Err(Error {
+                        kind: ErrorKind::Syntax,
+                    });
                 }
+            }
+            None => {
+                return Err(Error {
+                    kind: ErrorKind::Eof,
+                });
             }
         };
 
@@ -485,11 +197,15 @@ impl<'de, 'a, R: Read<'de> + 'a> serde::de::MapAccess<'de> for MapAccess<'a, R> 
     where
         V: serde::de::DeserializeSeed<'de>,
     {
-        match self.de.peek()?.ok_or(Error {})? {
-            b':' => {
+        match self.de.peek()? {
+            Some(b':') => {
                 self.de.eat_char();
             }
-            _ => return Err(Error {}),
+            _ => {
+                return Err(Error {
+                    kind: ErrorKind::Syntax,
+                })
+            }
         }
         seed.deserialize(&mut *self.de)
     }
@@ -513,20 +229,24 @@ impl<'de, 'a, R: Read<'de> + 'a> serde::de::SeqAccess<'de> for SeqAccess<'a, R> 
     where
         T: serde::de::DeserializeSeed<'de>,
     {
-        let _peek = match self.de.peek()?.ok_or(Error {})? {
-            b')' => return Ok(None),
-            b',' if !self.first => {
+        match self.de.peek()? {
+            Some(b')') => return Ok(None),
+            Some(b',') if !self.first => {
                 self.de.eat_char();
-
-                self.de.peek()?.ok_or(Error {})?
             }
-            b => {
+            Some(_) => {
                 if self.first {
                     self.first = false;
-                    b
                 } else {
-                    return Err(Error {});
+                    return Err(Error {
+                        kind: ErrorKind::Syntax,
+                    });
                 }
+            }
+            None => {
+                return Err(Error {
+                    kind: ErrorKind::Eof,
+                })
             }
         };
 
@@ -553,60 +273,74 @@ where
 {
     from_trait(read::SliceRead::new(v))
 }
+pub fn from_str<'a, T>(v: &'a str) -> Result<T>
+where
+    T: serde::de::Deserialize<'a>,
+{
+    from_trait(read::StrRead::new(v))
+}
+
+pub fn from_reader<'a, T, I>(v: I) -> Result<T>
+where
+    T: serde::de::Deserialize<'a>,
+    I: std::io::Read,
+{
+    from_trait(read::IoRead::new(v))
+}
 
 #[cfg(test)]
 mod test {
     #[test]
     fn deserialize_true() {
-        let v: bool = super::from_slice(b"!t").unwrap();
+        let v: bool = super::from_str("!t").unwrap();
 
         assert!(v);
     }
     #[test]
     fn deserialize_false() {
-        let v: bool = super::from_slice(b"!f").unwrap();
+        let v: bool = super::from_str("!f").unwrap();
 
         assert!(!v);
     }
     #[test]
     fn fail_deserialize_bool_trailing() {
-        let v: super::Result<bool> = super::from_slice(b"!ff");
+        let v: super::Result<bool> = super::from_str("!ff");
 
         assert!(matches!(v, Err(_)));
     }
     #[test]
     fn deserialize_quoted_empty_string() {
-        let v: String = super::from_slice(b"''").unwrap();
+        let v: String = super::from_str("''").unwrap();
 
         assert_eq!(v, "");
     }
     #[test]
     fn deserialize_quoted_string() {
-        let v: String = super::from_slice(b"'hello, rison'").unwrap();
+        let v: String = super::from_str("'hello, rison'").unwrap();
 
         assert_eq!(v, "hello, rison");
     }
     #[test]
     fn deserialize_quoted_string_with_escapes() {
-        let v: String = super::from_slice(b"'hello, !'rison!'!!'").unwrap();
+        let v: String = super::from_str("'hello, !'rison!'!!'").unwrap();
 
         assert_eq!(v, "hello, 'rison'!");
     }
     #[test]
     fn deserialize_ident_string() {
-        let v: String = super::from_slice(b"hellorison").unwrap();
+        let v: String = super::from_str("hellorison").unwrap();
 
         assert_eq!(v, "hellorison");
     }
     #[test]
     fn deserialize_none() {
-        let v: Option<String> = super::from_slice(b"!n").unwrap();
+        let v: Option<String> = super::from_str("!n").unwrap();
 
         assert_eq!(v, None);
     }
     #[test]
     fn deserialize_some_ident_string() {
-        let v: Option<String> = super::from_slice(b"hellorison").unwrap();
+        let v: Option<String> = super::from_str("hellorison").unwrap();
 
         assert_eq!(v, Some("hellorison".into()));
     }
@@ -614,9 +348,7 @@ mod test {
     fn deserialize_empty_struct() {
         #[derive(serde::Deserialize)]
         struct Empty {}
-        let v: Empty = super::from_slice(b"()").unwrap();
-
-        // assert!(v.is_empty());
+        let _v: Empty = super::from_str("()").unwrap();
     }
     #[test]
     fn deserialize_struct() {
@@ -625,7 +357,7 @@ mod test {
             a: String,
             b: String,
         }
-        let v: Full = super::from_slice(b"(a:hello,b:world)").unwrap();
+        let v: Full = super::from_str("(a:hello,b:world)").unwrap();
 
         assert_eq!(
             v,
@@ -636,9 +368,43 @@ mod test {
         );
     }
     #[test]
+    fn deserialize_struct_with_optional_present() {
+        #[derive(serde::Deserialize, Debug, PartialEq, Eq)]
+        struct Full {
+            a: String,
+            b: Option<String>,
+        }
+        let v: Full = super::from_str("(a:hello,b:world)").unwrap();
+
+        assert_eq!(
+            v,
+            Full {
+                a: "hello".into(),
+                b: Some("world".into())
+            }
+        );
+    }
+    #[test]
+    fn deserialize_struct_with_optional_missing() {
+        #[derive(serde::Deserialize, Debug, PartialEq, Eq)]
+        struct Full {
+            a: String,
+            b: Option<String>,
+        }
+        let v: Full = super::from_str("(a:hello)").unwrap();
+
+        assert_eq!(
+            v,
+            Full {
+                a: "hello".into(),
+                b: None
+            }
+        );
+    }
+    #[test]
     fn deserialize_map() {
         let v: std::collections::HashMap<String, String> =
-            super::from_slice(b"(a:hello,b:world)").unwrap();
+            super::from_str("(a:hello,b:world)").unwrap();
 
         let expected = vec![("a".into(), "hello".into()), ("b".into(), "world".into())]
             .into_iter()
@@ -647,19 +413,29 @@ mod test {
     }
     #[test]
     fn deserialize_tuple() {
-        let v: (String, String) = super::from_slice(b"!(hello,world)").unwrap();
+        let v: (String, String) = super::from_str("!(hello,world)").unwrap();
 
         assert_eq!(v, ("hello".into(), "world".into()));
     }
     #[test]
     fn deserialize_value_string() {
-        let v: serde_json::Value = super::from_slice(b"helloworld").unwrap();
+        let v: serde_json::Value = super::from_str("helloworld").unwrap();
 
         assert_eq!(v, serde_json::Value::String("helloworld".into()));
     }
     #[test]
     fn deserialize_value_map() {
-        let v: serde_json::Value = super::from_slice(b"(hello:!(a,b,c),world:'it works')").unwrap();
+        let v: serde_json::Value = super::from_str("(hello:!(a,b,c),world:'it works')").unwrap();
+
+        assert_eq!(
+            v,
+            serde_json::json!({"hello": ["a", "b", "c"], "world": "it works"})
+        );
+    }
+    #[test]
+    fn deserialize_value_map_from_io() {
+        let v: serde_json::Value =
+            super::from_reader(b"(hello:!(a,b,c),world:'it works')" as &[_]).unwrap();
 
         assert_eq!(
             v,
