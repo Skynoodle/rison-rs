@@ -1,4 +1,4 @@
-use super::{Error, ErrorKind, Result};
+use super::error::{Error, ErrorKind, Result};
 
 pub trait Read<'de> {
     fn next(&mut self) -> Result<Option<u8>> {

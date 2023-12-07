@@ -1,5 +1,5 @@
+use crate::error::{Error, ErrorKind, Result};
 use crate::read::{self, Read};
-use crate::{Error, ErrorKind, Result};
 
 pub struct Deserializer<R> {
     read: R,
