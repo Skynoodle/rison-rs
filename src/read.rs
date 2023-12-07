@@ -1,5 +1,28 @@
 use super::error::{Error, ErrorKind, Result};
 
+pub enum Reference<'b, 'c, T: ?Sized> {
+    Borrowed(&'b T),
+    Copied(&'c T),
+}
+
+impl<'b, 'c, T: ?Sized> Reference<'b, 'c, T> {
+    fn map<O: ?Sized>(self, f: impl for<'r> FnOnce(&'r T) -> &'r O) -> Reference<'b, 'c, O> {
+        match self {
+            Reference::Borrowed(b) => Reference::Borrowed(f(b)),
+            Reference::Copied(c) => Reference::Copied(f(c)),
+        }
+    }
+    fn try_map<O: ?Sized, E>(
+        self,
+        f: impl for<'r> FnOnce(&'r T) -> std::result::Result<&'r O, E>,
+    ) -> std::result::Result<Reference<'b, 'c, O>, E> {
+        Ok(match self {
+            Reference::Borrowed(b) => Reference::Borrowed(f(b)?),
+            Reference::Copied(c) => Reference::Copied(f(c)?),
+        })
+    }
+}
+
 pub trait Read<'de> {
     fn next(&mut self) -> Result<Option<u8>> {
         let next = self.peek()?;
@@ -11,9 +34,9 @@ pub trait Read<'de> {
     fn peek(&mut self) -> Result<Option<u8>>;
     fn discard(&mut self);
     // TODO: scratch and zero-copy optimisations
-    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str>;
+    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'de, 's, str>>;
     // TODO: scratch and zero-copy optimisations
-    fn parse_ident<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str>;
+    fn parse_ident<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'de, 's, str>>;
 }
 
 pub struct SliceRead<'a> {
@@ -34,7 +57,10 @@ impl<'a> SliceRead<'a> {
     /// safety elsewhere relies on the guarantee provided by this method that
     /// it will not transform the input stream such that valid utf-8 in the
     /// input becomes invalid in the output.
-    fn parse_str_bytes<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s [u8]> {
+    fn parse_str_bytes<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'a, 's, [u8]>> {
         let mut start = self.index;
         loop {
             while self.index < self.slice.len() && !is_control(self.slice[self.index]) {
@@ -49,7 +75,7 @@ impl<'a> SliceRead<'a> {
                 b'\'' => {
                     scratch.extend_from_slice(&self.slice[start..self.index]);
                     self.index += 1;
-                    return Ok(scratch);
+                    return Ok(Reference::Copied(scratch));
                 }
                 b'!' => {
                     scratch.extend_from_slice(&self.slice[start..self.index]);
@@ -83,7 +109,7 @@ impl<'a> SliceRead<'a> {
     /// safety elsewhere relies on the guarantee provided by this method that
     /// it will not transform the input stream such that valid utf-8 in the
     /// input becomes invalid in the output.
-    fn parse_ident_bytes(&mut self) -> Result<&[u8]> {
+    fn parse_ident_bytes(&mut self) -> Result<&'a [u8]> {
         const NOT_ID_CHARS: &[u8] = b" '!:(),*@$";
         let start = self.index;
         while self.index < self.slice.len() && !NOT_ID_CHARS.contains(&self.slice[self.index]) {
@@ -108,18 +134,20 @@ impl<'a> Read<'a> for SliceRead<'a> {
         self.index += 1;
     }
 
-    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str> {
+    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'a, 's, str>> {
         let bytes = self.parse_str_bytes(scratch)?;
-        std::str::from_utf8(bytes).map_err(|_| Error {
+        bytes.try_map(std::str::from_utf8).map_err(|_| Error {
             kind: ErrorKind::Syntax,
         })
     }
-    fn parse_ident<'s>(&'s mut self, _scratch: &'s mut Vec<u8>) -> Result<&'s str> {
+    fn parse_ident<'s>(&'s mut self, _scratch: &'s mut Vec<u8>) -> Result<Reference<'a, 's, str>> {
         let bytes = self.parse_ident_bytes()?;
 
-        std::str::from_utf8(bytes).map_err(|_| Error {
-            kind: ErrorKind::Syntax,
-        })
+        std::str::from_utf8(bytes)
+            .map_err(|_| Error {
+                kind: ErrorKind::Syntax,
+            })
+            .map(Reference::Copied)
     }
 }
 
@@ -145,7 +173,7 @@ impl<'a> Read<'a> for StrRead<'a> {
         self.delegate.discard()
     }
 
-    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str> {
+    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'a, 's, str>> {
         let bytes = self.delegate.parse_str_bytes(scratch)?;
 
         // # Safety
@@ -154,9 +182,9 @@ impl<'a> Read<'a> for StrRead<'a> {
         // is guaranteed to be valid utf-8 by construction. The resulting
         // buffer is therefore valid utf-8, satisfying the safety preconditions
         // of `String::from_utf8_unchecked`
-        Ok(unsafe { std::str::from_utf8_unchecked(bytes) })
+        Ok(bytes.map(|b| unsafe { std::str::from_utf8_unchecked(b) }))
     }
-    fn parse_ident<'s>(&'s mut self, _scratch: &'s mut Vec<u8>) -> Result<&'s str> {
+    fn parse_ident<'s>(&'s mut self, _scratch: &'s mut Vec<u8>) -> Result<Reference<'a, 's, str>> {
         let bytes = self.delegate.parse_ident_bytes()?;
 
         // # Safety
@@ -165,7 +193,9 @@ impl<'a> Read<'a> for StrRead<'a> {
         // is guaranteed to be valid utf-8 by construction. The resulting
         // buffer is therefore valid utf-8, satisfying the safety preconditions
         // of `String::from_utf8_unchecked`.
-        Ok(unsafe { std::str::from_utf8_unchecked(bytes) })
+        Ok(Reference::Borrowed(unsafe {
+            std::str::from_utf8_unchecked(bytes)
+        }))
     }
 }
 
@@ -205,7 +235,7 @@ where
         self.peeked = None;
     }
 
-    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str> {
+    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'de, 's, str>> {
         loop {
             while let Some(ch) = self.peek()? {
                 if is_control(ch) {
@@ -224,9 +254,11 @@ where
             match ch {
                 b'\'' => {
                     self.discard();
-                    return std::str::from_utf8(scratch).map_err(|_| Error {
-                        kind: ErrorKind::Syntax,
-                    });
+                    return std::str::from_utf8(scratch)
+                        .map_err(|_| Error {
+                            kind: ErrorKind::Syntax,
+                        })
+                        .map(Reference::Copied);
                 }
                 b'!' => {
                     self.discard();
@@ -252,7 +284,7 @@ where
         }
     }
 
-    fn parse_ident<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str> {
+    fn parse_ident<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'de, 's, str>> {
         const NOT_ID_CHARS: &[u8] = b" '!:(),*@$";
 
         while let Some(ch) = self.peek()? {
@@ -263,9 +295,11 @@ where
             self.discard();
         }
 
-        std::str::from_utf8(scratch).map_err(|_| Error {
-            kind: ErrorKind::Syntax,
-        })
+        std::str::from_utf8(scratch)
+            .map_err(|_| Error {
+                kind: ErrorKind::Syntax,
+            })
+            .map(Reference::Copied)
     }
 }
 

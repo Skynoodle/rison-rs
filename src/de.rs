@@ -103,7 +103,10 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                 self.scratch.clear();
                 let s = self.read.parse_str(&mut self.scratch)?;
 
-                visitor.visit_str(s)
+                match s {
+                    read::Reference::Borrowed(borrowed) => visitor.visit_borrowed_str(borrowed),
+                    read::Reference::Copied(copied) => visitor.visit_str(copied),
+                }
             }
             Some(b'(') => {
                 self.eat_char();
@@ -125,7 +128,10 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
             Some(_) => {
                 self.scratch.clear();
                 let value = self.read.parse_ident(&mut self.scratch)?;
-                visitor.visit_str(value)
+                match value {
+                    read::Reference::Borrowed(borrowed) => visitor.visit_borrowed_str(borrowed),
+                    read::Reference::Copied(copied) => visitor.visit_str(copied),
+                }
             }
             None => Err(Error {
                 kind: ErrorKind::Eof,
