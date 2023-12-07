@@ -95,9 +95,10 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
             }
             Some(b'\'') => {
                 self.eat_char();
-                let s = self.read.parse_str()?;
+                let mut scratch = Vec::new();
+                let s = self.read.parse_str(&mut scratch)?;
 
-                visitor.visit_string(s)
+                visitor.visit_str(s)
             }
             Some(b'(') => {
                 self.eat_char();

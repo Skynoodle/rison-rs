@@ -11,7 +11,7 @@ pub trait Read<'de> {
     fn peek(&mut self) -> Result<Option<u8>>;
     fn discard(&mut self);
     // TODO: scratch and zero-copy optimisations
-    fn parse_str(&mut self) -> Result<String>;
+    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str>;
     // TODO: scratch and zero-copy optimisations
     fn parse_ident(&mut self) -> Result<String>;
 }
@@ -34,8 +34,7 @@ impl<'a> SliceRead<'a> {
     /// safety elsewhere relies on the guarantee provided by this method that
     /// it will not transform the input stream such that valid utf-8 in the
     /// input becomes invalid in the output.
-    fn parse_str_bytes(&mut self) -> Result<Vec<u8>> {
-        let mut scratch = Vec::new();
+    fn parse_str_bytes<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s [u8]> {
         let mut start = self.index;
         loop {
             while self.index < self.slice.len() && !is_control(self.slice[self.index]) {
@@ -109,9 +108,9 @@ impl<'a> Read<'a> for SliceRead<'a> {
         self.index += 1;
     }
 
-    fn parse_str(&mut self) -> Result<String> {
-        let bytes = self.parse_str_bytes()?;
-        String::from_utf8(bytes).map_err(|_| Error {
+    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str> {
+        let bytes = self.parse_str_bytes(scratch)?;
+        std::str::from_utf8(bytes).map_err(|_| Error {
             kind: ErrorKind::Syntax,
         })
     }
@@ -148,8 +147,8 @@ impl<'a> Read<'a> for StrRead<'a> {
         self.delegate.discard()
     }
 
-    fn parse_str(&mut self) -> Result<String> {
-        let bytes = self.delegate.parse_str_bytes()?;
+    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str> {
+        let bytes = self.delegate.parse_str_bytes(scratch)?;
 
         // # Safety
         // `parse_str_bytes` guarantees it will not transform
@@ -157,7 +156,7 @@ impl<'a> Read<'a> for StrRead<'a> {
         // is guaranteed to be valid utf-8 by construction. The resulting
         // buffer is therefore valid utf-8, satisfying the safety preconditions
         // of `String::from_utf8_unchecked`
-        Ok(unsafe { String::from_utf8_unchecked(bytes) })
+        Ok(unsafe { std::str::from_utf8_unchecked(bytes) })
     }
     fn parse_ident(&mut self) -> Result<String> {
         let bytes = self.delegate.parse_ident_bytes()?;
@@ -208,9 +207,7 @@ where
         self.peeked = None;
     }
 
-    fn parse_str(&mut self) -> Result<String> {
-        let mut scratch = Vec::new();
-        // let mut start = self.index;
+    fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str> {
         loop {
             while let Some(ch) = self.peek()? {
                 if is_control(ch) {
@@ -229,7 +226,7 @@ where
             match ch {
                 b'\'' => {
                     self.discard();
-                    return String::from_utf8(scratch).map_err(|_| Error {
+                    return std::str::from_utf8(scratch).map_err(|_| Error {
                         kind: ErrorKind::Syntax,
                     });
                 }
