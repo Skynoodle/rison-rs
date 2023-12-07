@@ -3,11 +3,15 @@ use crate::read::{self, Read};
 
 pub struct Deserializer<R> {
     read: R,
+    scratch: Vec<u8>,
 }
 
 impl<'de, R: Read<'de>> Deserializer<R> {
     fn new(read: R) -> Self {
-        Self { read }
+        Self {
+            read,
+            scratch: Vec::new(),
+        }
     }
 
     fn peek(&mut self) -> Result<Option<u8>> {
@@ -95,8 +99,9 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
             }
             Some(b'\'') => {
                 self.eat_char();
-                let mut scratch = Vec::new();
-                let s = self.read.parse_str(&mut scratch)?;
+
+                self.scratch.clear();
+                let s = self.read.parse_str(&mut self.scratch)?;
 
                 visitor.visit_str(s)
             }
