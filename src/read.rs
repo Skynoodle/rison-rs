@@ -73,9 +73,15 @@ impl<'a> SliceRead<'a> {
             }
             match self.slice[self.index] {
                 b'\'' => {
-                    scratch.extend_from_slice(&self.slice[start..self.index]);
-                    self.index += 1;
-                    return Ok(Reference::Copied(scratch));
+                    if scratch.is_empty() {
+                        let borrowed = &self.slice[start..self.index];
+                        self.index += 1;
+                        return Ok(Reference::Borrowed(borrowed));
+                    } else {
+                        scratch.extend_from_slice(&self.slice[start..self.index]);
+                        self.index += 1;
+                        return Ok(Reference::Copied(scratch));
+                    }
                 }
                 b'!' => {
                     scratch.extend_from_slice(&self.slice[start..self.index]);
