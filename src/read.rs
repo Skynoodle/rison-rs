@@ -13,7 +13,7 @@ pub trait Read<'de> {
     // TODO: scratch and zero-copy optimisations
     fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str>;
     // TODO: scratch and zero-copy optimisations
-    fn parse_ident(&mut self) -> Result<String>;
+    fn parse_ident<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str>;
 }
 
 pub struct SliceRead<'a> {
@@ -114,14 +114,12 @@ impl<'a> Read<'a> for SliceRead<'a> {
             kind: ErrorKind::Syntax,
         })
     }
-    fn parse_ident(&mut self) -> Result<String> {
+    fn parse_ident<'s>(&'s mut self, _scratch: &'s mut Vec<u8>) -> Result<&'s str> {
         let bytes = self.parse_ident_bytes()?;
 
-        Ok(std::str::from_utf8(bytes)
-            .map_err(|_| Error {
-                kind: ErrorKind::Syntax,
-            })?
-            .into())
+        std::str::from_utf8(bytes).map_err(|_| Error {
+            kind: ErrorKind::Syntax,
+        })
     }
 }
 
@@ -158,7 +156,7 @@ impl<'a> Read<'a> for StrRead<'a> {
         // of `String::from_utf8_unchecked`
         Ok(unsafe { std::str::from_utf8_unchecked(bytes) })
     }
-    fn parse_ident(&mut self) -> Result<String> {
+    fn parse_ident<'s>(&'s mut self, _scratch: &'s mut Vec<u8>) -> Result<&'s str> {
         let bytes = self.delegate.parse_ident_bytes()?;
 
         // # Safety
@@ -167,7 +165,7 @@ impl<'a> Read<'a> for StrRead<'a> {
         // is guaranteed to be valid utf-8 by construction. The resulting
         // buffer is therefore valid utf-8, satisfying the safety preconditions
         // of `String::from_utf8_unchecked`.
-        Ok(unsafe { std::str::from_utf8_unchecked(bytes) }.into())
+        Ok(unsafe { std::str::from_utf8_unchecked(bytes) })
     }
 }
 
@@ -254,8 +252,7 @@ where
         }
     }
 
-    fn parse_ident(&mut self) -> Result<String> {
-        let mut scratch = Vec::new();
+    fn parse_ident<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<&'s str> {
         const NOT_ID_CHARS: &[u8] = b" '!:(),*@$";
 
         while let Some(ch) = self.peek()? {
@@ -266,7 +263,7 @@ where
             self.discard();
         }
 
-        String::from_utf8(scratch).map_err(|_| Error {
+        std::str::from_utf8(scratch).map_err(|_| Error {
             kind: ErrorKind::Syntax,
         })
     }

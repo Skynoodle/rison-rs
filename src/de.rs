@@ -123,8 +123,9 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                 ret
             }
             Some(_) => {
-                let value = self.read.parse_ident()?;
-                visitor.visit_string(value)
+                self.scratch.clear();
+                let value = self.read.parse_ident(&mut self.scratch)?;
+                visitor.visit_str(value)
             }
             None => Err(Error {
                 kind: ErrorKind::Eof,
