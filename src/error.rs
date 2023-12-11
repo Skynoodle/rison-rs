@@ -1,28 +1,84 @@
-#[derive(Debug)]
-pub(crate) enum ErrorKind {
-    Custom(String),
-    Io(std::io::Error),
+pub enum Category {
+    Io,
     Syntax,
+    Data,
     Eof,
-    Semantic,
+}
+
+#[derive(Debug)]
+pub(crate) enum Code {
+    Message(String),
+    Io(std::io::Error),
+    EofList,
+    EofObject,
+    EofString,
+    EofIdent, // Implausible
+    ExpectedColon,
+    ExpectedListSepOrEnd,
+    ExpectedObjectSepOrEnd,
+    ExpectedIdent,
+    ExpectedValue,
+    ExpectedQuote,
+    InvalidMarker,
+    InvalidEscape,
+    InvalidNumber,
+    NumberOutOfRange,
+    InvalidUnicode,
+    TrailingSep,
+    TrailingChars,
 }
 
 #[derive(Debug)]
 pub struct Error {
-    pub(crate) kind: ErrorKind,
+    pub(crate) code: Code,
+}
+
+impl Error {
+    pub fn classify(&self) -> Category {
+        match self.code {
+            Code::Message(_) => Category::Data,
+            Code::Io(_) => Category::Io,
+            Code::EofList | Code::EofObject | Code::EofString | Code::EofIdent => Category::Eof,
+            Code::ExpectedColon
+            | Code::ExpectedListSepOrEnd
+            | Code::ExpectedObjectSepOrEnd
+            | Code::ExpectedIdent
+            | Code::ExpectedValue
+            | Code::ExpectedQuote
+            | Code::InvalidMarker
+            | Code::InvalidEscape
+            | Code::InvalidNumber
+            | Code::NumberOutOfRange
+            | Code::InvalidUnicode
+            | Code::TrailingSep
+            | Code::TrailingChars => Category::Syntax,
+        }
+    }
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.kind {
-            ErrorKind::Custom(custom) => {
-                "custom: ".fmt(f)?;
-                custom.fmt(f)
+        match &self.code {
+            Code::Message(msg) => f.write_str(msg),
+            Code::Io(err) => err.fmt(f),
+            Code::EofList => f.write_str("EoF while parsing a list"),
+            Code::EofObject => f.write_str("EoF while parsing an object"),
+            Code::EofString => f.write_str("EoF while parsing a quoted string"),
+            Code::EofIdent => f.write_str("EoF while parsing an identifier"),
+            Code::ExpectedColon => f.write_str("expected `:`"),
+            Code::ExpectedListSepOrEnd | Code::ExpectedObjectSepOrEnd => {
+                f.write_str("expected `,` or `)`")
             }
-            ErrorKind::Io(e) => write!(f, "io error: {e}"),
-            ErrorKind::Syntax => "syntax error".fmt(f),
-            ErrorKind::Eof => "unexpected eof".fmt(f),
-            ErrorKind::Semantic => "semantic error".fmt(f),
+            Code::ExpectedIdent => f.write_str("expected ident"),
+            Code::ExpectedValue => f.write_str("expected value"),
+            Code::ExpectedQuote => f.write_str("expected `'`"),
+            Code::InvalidMarker => f.write_str("invalid marker"),
+            Code::InvalidEscape => f.write_str("invalid escape"),
+            Code::InvalidNumber => f.write_str("invalid number"),
+            Code::NumberOutOfRange => f.write_str("number out of range"),
+            Code::InvalidUnicode => f.write_str("invalid unicode code point"),
+            Code::TrailingSep => f.write_str("trailing comma"),
+            Code::TrailingChars => f.write_str("trailing characters"),
         }
     }
 }
@@ -35,7 +91,7 @@ impl serde::de::Error for Error {
         T: std::fmt::Display,
     {
         Self {
-            kind: ErrorKind::Custom(msg.to_string()),
+            code: Code::Message(msg.to_string()),
         }
     }
 }
