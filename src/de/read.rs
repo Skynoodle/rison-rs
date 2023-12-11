@@ -1,5 +1,7 @@
 use crate::error::{Error, ErrorKind, Result};
 
+const NOT_ID_CHARS: &[u8] = b" '!:(),*@$";
+
 pub enum Reference<'b, 'c, T: ?Sized> {
     Borrowed(&'b T),
     Copied(&'c T),
@@ -116,7 +118,6 @@ impl<'a> SliceRead<'a> {
     /// it will not transform the input stream such that valid utf-8 in the
     /// input becomes invalid in the output.
     fn parse_ident_bytes(&mut self) -> Result<&'a [u8]> {
-        const NOT_ID_CHARS: &[u8] = b" '!:(),*@$";
         let start = self.index;
         while self.index < self.slice.len() && !NOT_ID_CHARS.contains(&self.slice[self.index]) {
             self.index += 1;
@@ -291,8 +292,6 @@ where
     }
 
     fn parse_ident<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'de, 's, str>> {
-        const NOT_ID_CHARS: &[u8] = b" '!:(),*@$";
-
         while let Some(ch) = self.peek()? {
             if NOT_ID_CHARS.contains(&ch) {
                 break;
