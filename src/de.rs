@@ -1,11 +1,33 @@
+//! Deserialize Rison data to Rust data structures
+
 mod read;
 
 use crate::error::{Code, Error, Result};
 use read::Read;
 
+/// A deserializer for Rison into Rust values
 pub struct Deserializer<R> {
     read: R,
     scratch: Vec<u8>,
+}
+
+impl<R: std::io::Read> Deserializer<read::IoRead<R>> {
+    /// Create a Rison deserializer from an `io::Read`
+    pub fn from_reader(reader: R) -> Self {
+        Self::new(read::IoRead::new(reader))
+    }
+}
+impl<'a> Deserializer<read::SliceRead<'a>> {
+    /// Create a Rison deserializer from a `&[u8]`
+    pub fn from_slice(slice: &'a [u8]) -> Self {
+        Self::new(read::SliceRead::new(slice))
+    }
+}
+impl<'a> Deserializer<read::StrRead<'a>> {
+    /// Create a Rison deserializer from a `&str`
+    pub fn from_str(s: &'a str) -> Self {
+        Self::new(read::StrRead::new(s))
+    }
 }
 
 impl<'de, R: Read<'de>> Deserializer<R> {
@@ -306,12 +328,15 @@ where
     Ok(value)
 }
 
+/// Deserialize an instance of `T` from a byte slice of Rison
 pub fn from_slice<'a, T>(v: &'a [u8]) -> Result<T>
 where
     T: serde::de::Deserialize<'a>,
 {
     from_trait(read::SliceRead::new(v))
 }
+
+/// Deserialize an instance of `T` from a string of Rison
 pub fn from_str<'a, T>(v: &'a str) -> Result<T>
 where
     T: serde::de::Deserialize<'a>,
@@ -319,6 +344,7 @@ where
     from_trait(read::StrRead::new(v))
 }
 
+/// Deserialize an instance of `T` from an IO stream of Rison
 pub fn from_reader<'a, T, I>(v: I) -> Result<T>
 where
     T: serde::de::Deserialize<'a>,

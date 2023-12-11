@@ -1,9 +1,17 @@
+//! Error and result types for Rison serialization and deserialization failures
+
 use std::fmt::Write;
 
+/// Categorizes an [`Error`]
+#[derive(Debug)]
 pub enum Category {
+    /// failed to read or write bytes on an IO stream
     Io,
+    /// input is not valid Rison
     Syntax,
+    /// input that is not semantically correct
     Data,
+    /// input that ended unexpectedly
     Eof,
 }
 
@@ -26,12 +34,14 @@ pub(crate) enum Code {
     TrailingChars,
 }
 
+/// An error that can occur while serializing or deserializing Rison
 pub struct Error {
     pub(crate) code: Code,
     pub(crate) position: Option<usize>,
 }
 
 impl Error {
+    /// Categorizes this error
     pub fn classify(&self) -> Category {
         match self.code {
             Code::Message(_) => Category::Data,
@@ -50,6 +60,12 @@ impl Error {
             | Code::InvalidUnicode
             | Code::TrailingChars => Category::Syntax,
         }
+    }
+    /// Zero-based position at which the error was detected
+    ///
+    /// Errors may currently be missing a position in some cases
+    pub fn position(&self) -> Option<usize> {
+        self.position
     }
 }
 
@@ -110,4 +126,5 @@ impl serde::de::Error for Error {
     }
 }
 
+/// An alias for [`Result`](std::result::Result) with the [`rison::Error`](Error) error type
 pub type Result<T> = std::result::Result<T, Error>;
