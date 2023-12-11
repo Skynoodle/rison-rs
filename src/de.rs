@@ -93,11 +93,18 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                     self.eat_char();
                 }
 
-                let v = f.parse().map_err(|e| Error {
+                let v: f64 = f.parse().map_err(|e| Error {
                     kind: ErrorKind::Syntax,
                 })?;
 
-                visitor.visit_f64(v)
+                const MAX_INT: f64 = std::i32::MAX as _;
+                const MIN_INT: f64 = std::i32::MIN as _;
+                let truncated = v.trunc();
+                if truncated == v && (MIN_INT..MAX_INT).contains(&truncated) {
+                    visitor.visit_i32(truncated as i32)
+                } else {
+                    visitor.visit_f64(v)
+                }
             }
             Some(b'\'') => {
                 self.eat_char();
