@@ -1,4 +1,4 @@
-use crate::error::{Error, ErrorKind, Result};
+use crate::error::{Code, Error, Result};
 
 const NOT_ID_CHARS: &[u8] = b" '!:(),*@$";
 
@@ -65,12 +65,9 @@ impl<'a> SliceRead<'a> {
     ) -> Result<Reference<'a, 's, [u8]>> {
         let mut start = self.index;
         loop {
-            while self.index < self.slice.len() && !is_control(self.slice[self.index]) {
-                self.index += 1;
-            }
             if self.index == self.slice.len() {
                 return Err(Error {
-                    kind: ErrorKind::Eof,
+                    code: Code::EofString,
                 });
             }
             match self.slice[self.index] {
@@ -90,12 +87,12 @@ impl<'a> SliceRead<'a> {
                     self.index += 1;
                     scratch.push(
                         match self.next()?.ok_or(Error {
-                            kind: ErrorKind::Eof,
+                            code: Code::EofString,
                         })? {
                             c @ (b'!' | b'\'') => c,
                             _ => {
                                 return Err(Error {
-                                    kind: ErrorKind::Syntax,
+                                    code: Code::InvalidEscape,
                                 })
                             }
                         },
@@ -103,9 +100,7 @@ impl<'a> SliceRead<'a> {
                     start = self.index;
                 }
                 _ => {
-                    return Err(Error {
-                        kind: ErrorKind::Syntax,
-                    })
+                    self.index += 1;
                 }
             }
         }
@@ -144,7 +139,7 @@ impl<'a> Read<'a> for SliceRead<'a> {
     fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'a, 's, str>> {
         let bytes = self.parse_str_bytes(scratch)?;
         bytes.try_map(std::str::from_utf8).map_err(|_| Error {
-            kind: ErrorKind::Syntax,
+            code: Code::InvalidUnicode,
         })
     }
     fn parse_ident<'s>(&'s mut self, _scratch: &'s mut Vec<u8>) -> Result<Reference<'a, 's, str>> {
@@ -152,7 +147,7 @@ impl<'a> Read<'a> for SliceRead<'a> {
 
         std::str::from_utf8(bytes)
             .map_err(|_| Error {
-                kind: ErrorKind::Syntax,
+                code: Code::InvalidUnicode,
             })
             .map(Reference::Copied)
     }
@@ -229,9 +224,11 @@ where
             return Ok(Some(ch));
         }
 
-        let ch = self.io.next().transpose().map_err(|e| Error {
-            kind: ErrorKind::Io(e),
-        })?;
+        let ch = self
+            .io
+            .next()
+            .transpose()
+            .map_err(|e| Error { code: Code::Io(e) })?;
 
         self.peeked = ch;
 
@@ -244,17 +241,9 @@ where
 
     fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'de, 's, str>> {
         loop {
-            while let Some(ch) = self.peek()? {
-                if is_control(ch) {
-                    break;
-                }
-                scratch.push(ch);
-                self.discard();
-            }
-
             let Some(ch) = self.peek()? else {
                 return Err(Error {
-                    kind: ErrorKind::Eof,
+                    code: Code::EofString,
                 });
             };
 
@@ -263,7 +252,7 @@ where
                     self.discard();
                     return std::str::from_utf8(scratch)
                         .map_err(|_| Error {
-                            kind: ErrorKind::Syntax,
+                            code: Code::InvalidUnicode,
                         })
                         .map(Reference::Copied);
                 }
@@ -271,21 +260,20 @@ where
                     self.discard();
                     scratch.push(
                         match self.next()?.ok_or(Error {
-                            kind: ErrorKind::Eof,
+                            code: Code::EofString,
                         })? {
                             c @ (b'!' | b'\'') => c,
                             _ => {
                                 return Err(Error {
-                                    kind: ErrorKind::Syntax,
+                                    code: Code::InvalidMarker,
                                 })
                             }
                         },
                     );
                 }
                 _ => {
-                    return Err(Error {
-                        kind: ErrorKind::Syntax,
-                    })
+                    scratch.push(ch);
+                    self.discard();
                 }
             }
         }
@@ -302,12 +290,12 @@ where
 
         std::str::from_utf8(scratch)
             .map_err(|_| Error {
-                kind: ErrorKind::Syntax,
+                code: Code::InvalidUnicode,
             })
             .map(Reference::Copied)
     }
 }
 
-pub(crate) fn is_control(b: u8) -> bool {
-    b <= 0x1f || b == b'\'' || b == b'!'
+pub(crate) fn is_special(b: u8) -> bool {
+    b == b'\'' || b == b'!'
 }
