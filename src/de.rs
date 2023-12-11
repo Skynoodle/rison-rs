@@ -325,6 +325,36 @@ mod test {
         assert!(!v);
     }
     #[test]
+    fn deserialize_integer() {
+        let v: u32 = super::from_str("12").unwrap();
+
+        assert_eq!(v, 12);
+    }
+    #[test]
+    fn fail_deserialize_nonintegral_as_integer() {
+        let v: super::Result<u32> = super::from_str("12.4");
+
+        assert!(matches!(v, Err(_)));
+    }
+    #[test]
+    fn deserialize_integral_float() {
+        let v: f64 = super::from_str("12").unwrap();
+
+        assert_eq!(v, 12.0);
+    }
+    #[test]
+    fn deserialize_float() {
+        let v: f64 = super::from_str("12.4").unwrap();
+
+        assert_eq!(v, 12.4);
+    }
+    #[test]
+    fn deserialize_float_exp() {
+        let v: f64 = super::from_str("12.4e4").unwrap();
+
+        assert_eq!(v, 12.4);
+    }
+    #[test]
     fn fail_deserialize_bool_trailing() {
         let v: super::Result<bool> = super::from_str("!ff");
 
