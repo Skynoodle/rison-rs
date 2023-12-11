@@ -1,4 +1,4 @@
-use super::error::{Error, ErrorKind, Result};
+use crate::error::{Error, ErrorKind, Result};
 
 pub enum Reference<'b, 'c, T: ?Sized> {
     Borrowed(&'b T),

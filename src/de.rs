@@ -1,5 +1,7 @@
+mod read;
+
 use crate::error::{Error, ErrorKind, Result};
-use crate::read::{self, Read};
+use read::Read;
 
 pub struct Deserializer<R> {
     read: R,
