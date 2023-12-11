@@ -1,11 +1,15 @@
 [package]
 name = "rison"
+description = "A deserializer for the rison data format"
 version = "0.1.0"
+authors = ["Iain MacIver <iainrobert.maciver@gmail.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Skynoodle/rison-rs"
 edition = "2021"
 
 [dependencies]
-serde_json = "1.0.82"
-serde = "1.0.139"
+serde = "1.0.193"
 
 [dev-dependencies]
-serde = { version = "1.0.139", features = ["derive"] }
+serde_json = "1.0.108"
+serde = { version = "1.0.193", features = ["derive"] }

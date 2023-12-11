@@ -7,7 +7,7 @@
 //! - <https://github.com/w33ble/rison-node>
 //!
 //! The deserializer implementation is broadly inspired by the existing
-//! [`serde_json`] library which provides a [`serde`] serializer and
+//! `serde_json` library which provides a `serde` serializer and
 //! deserializer for the standard JSON format.
 
 pub mod de;
