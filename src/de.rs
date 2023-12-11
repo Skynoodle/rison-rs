@@ -88,7 +88,7 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
             }
             Some(b'-' | b'0'..=b'9') => {
                 let mut f = String::new();
-                while let Some(ch @ (b'-' | b'0'..=b'9' | b'.')) = self.peek()? {
+                while let Some(ch @ (b'-' | b'0'..=b'9' | b'.' | b'e')) = self.peek()? {
                     f.push(ch as char);
                     self.eat_char();
                 }
@@ -352,7 +352,13 @@ mod test {
     fn deserialize_float_exp() {
         let v: f64 = super::from_str("12.4e4").unwrap();
 
-        assert_eq!(v, 12.4);
+        assert_eq!(v, 12.4e4);
+    }
+    #[test]
+    fn deserialize_float_neg_exp() {
+        let v: f64 = super::from_str("12.4e-4").unwrap();
+
+        assert_eq!(v, 12.4e-4);
     }
     #[test]
     fn fail_deserialize_bool_trailing() {
