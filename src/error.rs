@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 pub enum Category {
     Io,
     Syntax,
@@ -24,9 +26,9 @@ pub(crate) enum Code {
     TrailingChars,
 }
 
-#[derive(Debug)]
 pub struct Error {
     pub(crate) code: Code,
+    pub(crate) position: Option<usize>,
 }
 
 impl Error {
@@ -51,9 +53,9 @@ impl Error {
     }
 }
 
-impl std::fmt::Display for Error {
+impl std::fmt::Display for Code {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.code {
+        match self {
             Code::Message(msg) => f.write_str(msg),
             Code::Io(err) => err.fmt(f),
             Code::EofValue => f.write_str("EoF while parsing a value"),
@@ -74,6 +76,26 @@ impl std::fmt::Display for Error {
     }
 }
 
+impl std::fmt::Debug for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error({:?}", self.code.to_string())?;
+        if let Some(position) = self.position {
+            write!(f, ", position: {}", position)?;
+        }
+        f.write_char(')')
+    }
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.code.fmt(f)?;
+        if let Some(position) = self.position {
+            write!(f, " at position {}", position)?;
+        }
+        Ok(())
+    }
+}
+
 impl std::error::Error for Error {}
 
 impl serde::de::Error for Error {
@@ -83,6 +105,7 @@ impl serde::de::Error for Error {
     {
         Self {
             code: Code::Message(msg.to_string()),
+            position: None,
         }
     }
 }

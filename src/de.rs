@@ -32,6 +32,7 @@ impl<'de, R: Read<'de>> Deserializer<R> {
         match self.peek()? {
             Some(_) => Err(Error {
                 code: Code::TrailingChars,
+                position: self.read.position().into(),
             }),
             None => Ok(()),
         }
@@ -50,6 +51,7 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                 self.eat_char();
                 let peek = self.peek()?.ok_or(Error {
                     code: Code::EofMarker,
+                    position: self.read.position().into(),
                 })?;
                 match peek {
                     b'n' => {
@@ -71,12 +73,14 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
 
                         if let b')' = self.peek()?.ok_or(Error {
                             code: Code::EofList,
+                            position: self.read.position().into(),
                         })? {
                             self.eat_char();
                         } else {
                             // TODO: Unreachable?
                             return Err(Error {
                                 code: Code::TrailingChars,
+                                position: self.read.position().into(),
                             });
                         };
 
@@ -84,6 +88,7 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                     }
                     _ => Err(Error {
                         code: Code::InvalidMarker,
+                        position: self.read.position().into(),
                     }),
                 }
             }
@@ -96,6 +101,7 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
 
                 let v: f64 = f.parse().map_err(|_e| Error {
                     code: Code::InvalidNumber,
+                    position: self.read.position().into(),
                 })?;
 
                 const MAX_INT: f64 = std::i32::MAX as _;
@@ -125,12 +131,14 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
 
                 if let b')' = self.peek()?.ok_or(Error {
                     code: Code::EofObject,
+                    position: self.read.position().into(),
                 })? {
                     self.eat_char();
                 } else {
                     // TODO: Unreachable?
                     return Err(Error {
                         code: Code::TrailingChars,
+                        position: self.read.position().into(),
                     });
                 };
 
@@ -146,6 +154,7 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
             }
             None => Err(Error {
                 code: Code::EofValue,
+                position: self.read.position().into(),
             }),
         }
     }
@@ -160,6 +169,7 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                 if self.next_char()? != Some(b'n') {
                     return Err(Error {
                         code: Code::InvalidMarker,
+                        position: self.read.position().into(),
                     });
                 }
                 visitor.visit_none()
@@ -204,12 +214,14 @@ impl<'de, 'a, R: Read<'de> + 'a> serde::de::MapAccess<'de> for MapAccess<'a, R> 
                 } else {
                     return Err(Error {
                         code: Code::ExpectedObjectSepOrEnd,
+                        position: self.de.read.position().into(),
                     });
                 }
             }
             None => {
                 return Err(Error {
                     code: Code::EofObject,
+                    position: self.de.read.position().into(),
                 });
             }
         };
@@ -228,6 +240,7 @@ impl<'de, 'a, R: Read<'de> + 'a> serde::de::MapAccess<'de> for MapAccess<'a, R> 
             _ => {
                 return Err(Error {
                     code: Code::ExpectedColon,
+                    position: self.de.read.position().into(),
                 })
             }
         }
@@ -264,12 +277,14 @@ impl<'de, 'a, R: Read<'de> + 'a> serde::de::SeqAccess<'de> for SeqAccess<'a, R> 
                 } else {
                     return Err(Error {
                         code: Code::ExpectedListSepOrEnd,
+                        position: self.de.read.position().into(),
                     });
                 }
             }
             None => {
                 return Err(Error {
                     code: Code::EofList,
+                    position: self.de.read.position().into(),
                 })
             }
         };

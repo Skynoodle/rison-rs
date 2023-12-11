@@ -39,6 +39,7 @@ pub trait Read<'de> {
     fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'de, 's, str>>;
     // TODO: scratch and zero-copy optimisations
     fn parse_ident<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'de, 's, str>>;
+    fn position(&mut self) -> usize;
 }
 
 pub struct SliceRead<'a> {
@@ -68,6 +69,7 @@ impl<'a> SliceRead<'a> {
             if self.index == self.slice.len() {
                 return Err(Error {
                     code: Code::EofString,
+                    position: self.position().into(),
                 });
             }
             match self.slice[self.index] {
@@ -88,11 +90,13 @@ impl<'a> SliceRead<'a> {
                     scratch.push(
                         match self.next()?.ok_or(Error {
                             code: Code::EofString,
+                            position: self.position().into(),
                         })? {
                             c @ (b'!' | b'\'') => c,
                             _ => {
                                 return Err(Error {
                                     code: Code::InvalidEscape,
+                                    position: self.position().into(),
                                 })
                             }
                         },
@@ -137,19 +141,27 @@ impl<'a> Read<'a> for SliceRead<'a> {
     }
 
     fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'a, 's, str>> {
+        let start_position = self.position();
         let bytes = self.parse_str_bytes(scratch)?;
-        bytes.try_map(std::str::from_utf8).map_err(|_| Error {
+        bytes.try_map(std::str::from_utf8).map_err(|e| Error {
             code: Code::InvalidUnicode,
+            position: (start_position + e.valid_up_to()).into(),
         })
     }
     fn parse_ident<'s>(&'s mut self, _scratch: &'s mut Vec<u8>) -> Result<Reference<'a, 's, str>> {
+        let start_position = self.position();
         let bytes = self.parse_ident_bytes()?;
 
         std::str::from_utf8(bytes)
-            .map_err(|_| Error {
+            .map_err(|e| Error {
                 code: Code::InvalidUnicode,
+                position: (start_position + e.valid_up_to()).into(),
             })
             .map(Reference::Copied)
+    }
+
+    fn position(&mut self) -> usize {
+        self.index
     }
 }
 
@@ -199,11 +211,16 @@ impl<'a> Read<'a> for StrRead<'a> {
             std::str::from_utf8_unchecked(bytes)
         }))
     }
+
+    fn position(&mut self) -> usize {
+        self.delegate.position()
+    }
 }
 
 pub struct IoRead<I> {
     io: std::io::Bytes<I>,
     peeked: Option<u8>,
+    position: usize,
 }
 
 impl<I: std::io::Read> IoRead<I> {
@@ -211,6 +228,7 @@ impl<I: std::io::Read> IoRead<I> {
         IoRead {
             io: reader.bytes(),
             peeked: None,
+            position: 0,
         }
     }
 }
@@ -224,11 +242,10 @@ where
             return Ok(Some(ch));
         }
 
-        let ch = self
-            .io
-            .next()
-            .transpose()
-            .map_err(|e| Error { code: Code::Io(e) })?;
+        let ch = self.io.next().transpose().map_err(|e| Error {
+            code: Code::Io(e),
+            position: self.position().into(),
+        })?;
 
         self.peeked = ch;
 
@@ -237,13 +254,16 @@ where
 
     fn discard(&mut self) {
         self.peeked = None;
+        self.position += 1;
     }
 
     fn parse_str<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'de, 's, str>> {
+        let start_position = self.position();
         loop {
             let Some(ch) = self.peek()? else {
                 return Err(Error {
                     code: Code::EofString,
+                    position: self.position().into(),
                 });
             };
 
@@ -251,8 +271,9 @@ where
                 b'\'' => {
                     self.discard();
                     return std::str::from_utf8(scratch)
-                        .map_err(|_| Error {
+                        .map_err(|e| Error {
                             code: Code::InvalidUnicode,
+                            position: (start_position + e.valid_up_to()).into(),
                         })
                         .map(Reference::Copied);
                 }
@@ -261,11 +282,13 @@ where
                     scratch.push(
                         match self.next()?.ok_or(Error {
                             code: Code::EofString,
+                            position: self.position().into(),
                         })? {
                             c @ (b'!' | b'\'') => c,
                             _ => {
                                 return Err(Error {
                                     code: Code::InvalidMarker,
+                                    position: self.position().into(),
                                 })
                             }
                         },
@@ -280,6 +303,7 @@ where
     }
 
     fn parse_ident<'s>(&'s mut self, scratch: &'s mut Vec<u8>) -> Result<Reference<'de, 's, str>> {
+        let start_position = self.position();
         while let Some(ch) = self.peek()? {
             if NOT_ID_CHARS.contains(&ch) {
                 break;
@@ -289,9 +313,14 @@ where
         }
 
         std::str::from_utf8(scratch)
-            .map_err(|_| Error {
+            .map_err(|e| Error {
                 code: Code::InvalidUnicode,
+                position: (start_position + e.valid_up_to()).into(),
             })
             .map(Reference::Copied)
+    }
+
+    fn position(&mut self) -> usize {
+        self.position
     }
 }
