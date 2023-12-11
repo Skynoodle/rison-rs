@@ -1,6 +1,6 @@
 mod read;
 
-use crate::error::{Error, ErrorKind, Result};
+use crate::error::{Code, Error, Result};
 use read::Read;
 
 pub struct Deserializer<R> {
@@ -31,7 +31,7 @@ impl<'de, R: Read<'de>> Deserializer<R> {
     fn end(&mut self) -> Result<()> {
         match self.peek()? {
             Some(_) => Err(Error {
-                kind: ErrorKind::Syntax,
+                code: Code::TrailingChars,
             }),
             None => Ok(()),
         }
@@ -49,7 +49,7 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
             Some(b'!') => {
                 self.eat_char();
                 let peek = self.peek()?.ok_or(Error {
-                    kind: ErrorKind::Eof,
+                    code: Code::EofMarker,
                 })?;
                 match peek {
                     b'n' => {
@@ -70,19 +70,20 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                         let ret = visitor.visit_seq(SeqAccess::new(self));
 
                         if let b')' = self.peek()?.ok_or(Error {
-                            kind: ErrorKind::Eof,
+                            code: Code::EofList,
                         })? {
                             self.eat_char();
                         } else {
+                            // TODO: Unreachable?
                             return Err(Error {
-                                kind: ErrorKind::Syntax,
+                                code: Code::TrailingChars,
                             });
                         };
 
                         ret
                     }
                     _ => Err(Error {
-                        kind: ErrorKind::Syntax,
+                        code: Code::InvalidMarker,
                     }),
                 }
             }
@@ -93,8 +94,8 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                     self.eat_char();
                 }
 
-                let v: f64 = f.parse().map_err(|e| Error {
-                    kind: ErrorKind::Syntax,
+                let v: f64 = f.parse().map_err(|_e| Error {
+                    code: Code::InvalidNumber,
                 })?;
 
                 const MAX_INT: f64 = std::i32::MAX as _;
@@ -123,12 +124,13 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                 let ret = visitor.visit_map(MapAccess::new(self));
 
                 if let b')' = self.peek()?.ok_or(Error {
-                    kind: ErrorKind::Eof,
+                    code: Code::EofObject,
                 })? {
                     self.eat_char();
                 } else {
+                    // TODO: Unreachable?
                     return Err(Error {
-                        kind: ErrorKind::Syntax,
+                        code: Code::TrailingChars,
                     });
                 };
 
@@ -143,7 +145,7 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                 }
             }
             None => Err(Error {
-                kind: ErrorKind::Eof,
+                code: Code::EofValue,
             }),
         }
     }
@@ -157,7 +159,7 @@ impl<'de, 'a, R: Read<'de>> serde::de::Deserializer<'de> for &'a mut Deserialize
                 self.eat_char();
                 if self.next_char()? != Some(b'n') {
                     return Err(Error {
-                        kind: ErrorKind::Semantic,
+                        code: Code::InvalidMarker,
                     });
                 }
                 visitor.visit_none()
@@ -201,13 +203,13 @@ impl<'de, 'a, R: Read<'de> + 'a> serde::de::MapAccess<'de> for MapAccess<'a, R> 
                     self.first = false;
                 } else {
                     return Err(Error {
-                        kind: ErrorKind::Syntax,
+                        code: Code::ExpectedObjectSepOrEnd,
                     });
                 }
             }
             None => {
                 return Err(Error {
-                    kind: ErrorKind::Eof,
+                    code: Code::EofObject,
                 });
             }
         };
@@ -225,7 +227,7 @@ impl<'de, 'a, R: Read<'de> + 'a> serde::de::MapAccess<'de> for MapAccess<'a, R> 
             }
             _ => {
                 return Err(Error {
-                    kind: ErrorKind::Syntax,
+                    code: Code::ExpectedColon,
                 })
             }
         }
@@ -261,13 +263,13 @@ impl<'de, 'a, R: Read<'de> + 'a> serde::de::SeqAccess<'de> for SeqAccess<'a, R> 
                     self.first = false;
                 } else {
                     return Err(Error {
-                        kind: ErrorKind::Syntax,
+                        code: Code::ExpectedListSepOrEnd,
                     });
                 }
             }
             None => {
                 return Err(Error {
-                    kind: ErrorKind::Eof,
+                    code: Code::EofList,
                 })
             }
         };

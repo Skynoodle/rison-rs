@@ -295,7 +295,3 @@ where
             .map(Reference::Copied)
     }
 }
-
-pub(crate) fn is_special(b: u8) -> bool {
-    b == b'\'' || b == b'!'
-}
